@@ -1,15 +1,9 @@
 import { useState, useEffect } from 'react';
 import ImageUploader from './components/ImageUploader';
 import Previewer from './components/Previewer';
-import { LayoutDashboard, Send, Loader2, Sparkles, Music, Upload, CheckCircle2 } from 'lucide-react';
+import { LayoutDashboard, Send, Loader2, Music, Upload } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { TRANSITIONS_LIST } from './constants/transitions';
-
-// Imports FFmpeg
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
-
-const ffmpeg = new FFmpeg();
 
 function App() {
   const [images, setImages] = useState([]); 
@@ -19,7 +13,7 @@ function App() {
   const [status, setStatus] = useState('');
   const [selectedTransitionId, setSelectedTransitionId] = useState('fade');
 
-  // RÉCUPÉRATION DES AUDIOS DU BUCKET
+  // RÉCUPÉRATION DES AUDIOS DU BUCKET (Inchangé)
   useEffect(() => {
     const fetchAudios = async () => {
       try {
@@ -73,12 +67,11 @@ function App() {
     }
   };
 
+  /**
+   * NOUVELLE MÉTHODE DE GÉNÉRATION (SUPABASE EDGE FUNCTIONS)
+   * Cette version déporte le calcul sur le serveur.
+   */
   const generateVideo = async () => {
-    if (!window.crossOriginIsolated) {
-      alert("ERREUR SÉCURITÉ : Vérifie que tu es en HTTPS et que vercel.json est présent.");
-      return;
-    }
-
     if (images.length === 0) {
       alert("Veuillez ajouter au moins une image.");
       return;
@@ -86,89 +79,43 @@ function App() {
 
     try {
       setLoading(true);
-      
-      if (!ffmpeg.loaded) {
-        setStatus('Démarrage...');
-        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-        await ffmpeg.load({
-          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-          workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
-        });
+      setStatus('Envoi au serveur ADFLOW...');
+
+      // Appel de la fonction "create-video" déployée sur Supabase
+      const { data, error } = await supabase.functions.invoke('create-video', {
+        body: { 
+          images: images, 
+          audioUrl: audioUrl,
+          transition: selectedTransitionId,
+          timestamp: new Date().toISOString()
+        }
+      });
+
+      if (error) throw error;
+
+      // Logique de réception : pour l'instant le serveur renvoie un succès
+      // Quand la logique de Cloudinary sera prête, data.videoUrl contiendra le lien MP4
+      if (data && data.videoUrl) {
+        setStatus('Téléchargement...');
+        const a = document.createElement('a');
+        a.href = data.videoUrl;
+        a.download = `adflow-video.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setStatus('Terminé !');
+      } else {
+        // Message temporaire en attendant la mise en place du rendu réel
+        alert("Succès ! Serveur ADFLOW : " + data.message);
+        setStatus('Prêt !');
       }
 
-      // 1. Vidage de la RAM virtuelle
-      try {
-        const currentFiles = await ffmpeg.listDir('.');
-        for (const f of currentFiles) { if (!f.isDir) await ffmpeg.deleteFile(f.name); }
-      } catch (e) {}
-
-      // 2. Création des segments vidéo (Un par un pour économiser la RAM)
-      const segments = [];
-      for (let i = 0; i < images.length; i++) {
-        setStatus(`Traitement ${i + 1}/${images.length}...`);
-        
-        const imgName = `input${i}.jpg`;
-        const segName = `seg${i}.mp4`;
-        
-        await ffmpeg.writeFile(imgName, await fetchFile(images[i].url));
-        
-        // On génère un clip de 3s pour cette image seule
-        await ffmpeg.exec([
-          '-loop', '1', '-t', '3',
-          '-i', imgName,
-          '-vf', 'scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2,setsar=1',
-          '-c:v', 'libx264',
-          '-preset', 'ultrafast',
-          '-pix_fmt', 'yuv420p',
-          '-r', '25',
-          segName
-        ]);
-
-        segments.push(`file ${segName}`);
-        await ffmpeg.deleteFile(imgName); // Suppression immédiate du fichier source
-      }
-
-      // 3. Fusion des segments
-      setStatus('Assemblage...');
-      await ffmpeg.writeFile('list.txt', segments.join('\n'));
-      await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'temp_video.mp4']);
-
-      // 4. Mixage Audio
-      let finalFile = 'temp_video.mp4';
-      if (audioUrl) {
-        setStatus('Musique...');
-        await ffmpeg.writeFile('music.mp3', await fetchFile(audioUrl));
-        await ffmpeg.exec([
-          '-i', 'temp_video.mp4',
-          '-i', 'music.mp3',
-          '-c:v', 'copy',
-          '-c:a', 'aac',
-          '-map', '0:v:0',
-          '-map', '1:a:0',
-          '-shortest',
-          'final_output.mp4'
-        ]);
-        finalFile = 'final_output.mp4';
-      }
-
-      // 5. Envoi du fichier
-      setStatus('Finalisation...');
-      const data = await ffmpeg.readFile(finalFile);
-      const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
-      
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `adflow-${Date.now()}.mp4`;
-      a.click();
-
-      setStatus('Prêt !');
     } catch (error) {
-      console.error(error);
-      alert("Le navigateur a restreint la mémoire. Ferme les autres applis et réessaie.");
+      console.error("Erreur Serveur:", error);
+      alert("Le serveur n'a pas pu traiter la demande : " + error.message);
     } finally {
       setLoading(false);
-      setStatus('');
+      setTimeout(() => setStatus(''), 3000);
     }
   };
 
@@ -184,7 +131,7 @@ function App() {
               <h1 className="text-2xl font-black tracking-tight uppercase">
                 ADFLOW <span className="text-blue-600 text-sm px-2 py-0.5 bg-blue-50 rounded ml-1">Studio</span>
               </h1>
-              <p className="text-xs text-slate-500 font-medium italic">Générateur de publicités Pro</p>
+              <p className="text-xs text-slate-500 font-medium italic">Générateur de publicités Pro (Cloud Mode)</p>
             </div>
           </div>
           
