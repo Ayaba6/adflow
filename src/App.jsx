@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import ImageUploader from './components/ImageUploader';
 import Previewer from './components/Previewer';
-import { LayoutDashboard, Send, Loader2, Sparkles, Music, Upload, CheckCircle2 } from 'lucide-react';
+import { LayoutDashboard, Send, Loader2, Sparkles, Music, Upload, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { TRANSITIONS_LIST } from './constants/transitions';
 
@@ -74,6 +74,12 @@ function App() {
   };
 
   const generateVideo = async () => {
+    // 1. Diagnostic de sécurité pour Android
+    if (!window.crossOriginIsolated) {
+      alert("ERREUR DE SÉCURITÉ : Le navigateur bloque l'accès à la RAM. Vérifie que tu es en HTTPS et que le fichier vercel.json est bien déployé.");
+      return;
+    }
+
     if (images.length === 0) {
       alert("Veuillez ajouter au moins une image.");
       return;
@@ -83,20 +89,25 @@ function App() {
       setLoading(true);
       
       if (!ffmpeg.loaded) {
-        setStatus('Moteur...');
+        setStatus('Initialisation...');
         const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
         await ffmpeg.load({
           coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
           wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-          // INDISPENSABLE POUR ANDROID / PWA
           workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
         });
       }
 
-      setStatus('Fichiers...');
-      try { await ffmpeg.deleteFile('output.mp4'); } catch (e) {}
+      setStatus('Nettoyage...');
+      // On tente de libérer la mémoire des anciens fichiers
+      try { 
+        const files = await ffmpeg.listDir('.');
+        for (const f of files) {
+          if (!f.isDir) await ffmpeg.deleteFile(f.name);
+        }
+      } catch (e) {}
 
-      // Chargement des images avec mode cors
+      setStatus('Fichiers...');
       for (let i = 0; i < images.length; i++) {
         await ffmpeg.writeFile(`img${i}.jpg`, await fetchFile(images[i].url, { mode: 'cors' }));
       }
@@ -127,6 +138,7 @@ function App() {
         ...(audioUrl ? ['-map', `${images.length}:a`, '-shortest'] : []),
         '-c:v', 'libx264',
         '-pix_fmt', 'yuv420p',
+        '-preset', 'ultrafast', // Crucial pour éviter de saturer la RAM sur mobile
         '-r', '25',
         'output.mp4'
       ];
@@ -145,7 +157,7 @@ function App() {
       setStatus('Terminé !');
     } catch (error) {
       console.error(error);
-      alert("Erreur FFmpeg : Vérifiez votre connexion ou la RAM de votre téléphone.");
+      alert("Erreur FFmpeg : Ton téléphone manque de RAM. Ferme les autres onglets et essaie avec moins d'images.");
     } finally {
       setLoading(false);
       setStatus('');
@@ -313,7 +325,6 @@ function App() {
           </div>
         </div>
         
-        {/* Espace pour éviter que le bouton flottant ne cache le contenu final sur mobile */}
         <div className="h-24 md:hidden"></div>
       </div>
     </div>
