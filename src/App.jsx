@@ -13,7 +13,7 @@ function App() {
   const [status, setStatus] = useState('');
   const [selectedTransitionId, setSelectedTransitionId] = useState('fade');
 
-  // RÉCUPÉRATION DES AUDIOS DU BUCKET (Inchangé)
+  // RÉCUPÉRATION DES AUDIOS DEPUIS SUPABASE STORAGE
   useEffect(() => {
     const fetchAudios = async () => {
       try {
@@ -33,7 +33,7 @@ function App() {
           setPresetAudios(audiosWithUrls);
         }
       } catch (err) {
-        console.error("Erreur de récupération des audios:", err.message);
+        console.error("Erreur audios:", err.message);
       }
     };
     fetchAudios();
@@ -48,7 +48,7 @@ function App() {
   const handleAudioUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    setStatus('Chargement de l\'audio...');
+    setStatus('Chargement audio...');
     const fileName = `${Date.now()}-${file.name}`;
     try {
       const { data, error } = await supabase.storage
@@ -68,12 +68,11 @@ function App() {
   };
 
   /**
-   * NOUVELLE MÉTHODE DE GÉNÉRATION (SUPABASE EDGE FUNCTIONS)
-   * Cette version déporte le calcul sur le serveur.
+   * GÉNÉRATION VIA SUPABASE EDGE FUNCTIONS + CLOUDINARY
    */
   const generateVideo = async () => {
     if (images.length === 0) {
-      alert("Veuillez ajouter au moins une image.");
+      alert("Ajoute au moins une image pour ta publicité.");
       return;
     }
 
@@ -81,38 +80,38 @@ function App() {
       setLoading(true);
       setStatus('Envoi au serveur ADFLOW...');
 
-      // Appel de la fonction "create-video" déployée sur Supabase
+      // Appel de ta fonction déployée
       const { data, error } = await supabase.functions.invoke('create-video', {
         body: { 
           images: images, 
           audioUrl: audioUrl,
-          transition: selectedTransitionId,
-          timestamp: new Date().toISOString()
+          transition: selectedTransitionId
         }
       });
 
       if (error) throw error;
 
-      // Logique de réception : pour l'instant le serveur renvoie un succès
-      // Quand la logique de Cloudinary sera prête, data.videoUrl contiendra le lien MP4
       if (data && data.videoUrl) {
         setStatus('Téléchargement...');
-        const a = document.createElement('a');
-        a.href = data.videoUrl;
-        a.download = `adflow-video.mp4`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        
+        // Création d'un lien pour forcer le téléchargement du MP4
+        const link = document.createElement('a');
+        link.href = data.videoUrl;
+        link.setAttribute('download', `adflow-crea-${Date.now()}.mp4`);
+        link.setAttribute('target', '_blank');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
         setStatus('Terminé !');
       } else {
-        // Message temporaire en attendant la mise en place du rendu réel
-        alert("Succès ! Serveur ADFLOW : " + data.message);
-        setStatus('Prêt !');
+        // Sécurité si le serveur n'a pas encore le nouveau code
+        alert("Réponse du serveur : " + (data.message || "Erreur de génération"));
       }
 
     } catch (error) {
       console.error("Erreur Serveur:", error);
-      alert("Le serveur n'a pas pu traiter la demande : " + error.message);
+      alert("Le serveur n'a pas pu traiter la demande. Vérifie ta connexion.");
     } finally {
       setLoading(false);
       setTimeout(() => setStatus(''), 3000);
@@ -131,15 +130,15 @@ function App() {
               <h1 className="text-2xl font-black tracking-tight uppercase">
                 ADFLOW <span className="text-blue-600 text-sm px-2 py-0.5 bg-blue-50 rounded ml-1">Studio</span>
               </h1>
-              <p className="text-xs text-slate-500 font-medium italic">Générateur de publicités Pro (Cloud Mode)</p>
+              <p className="text-xs text-slate-500 font-medium italic italic">Propulsé par Kodalink Cloud</p>
             </div>
           </div>
           
-          <div className="fixed bottom-6 left-0 right-0 px-4 z-50 md:static md:px-0 md:z-auto">
+          <div className="fixed bottom-6 left-0 right-0 px-4 z-40 md:static md:px-0 md:z-auto">
             <button 
               onClick={generateVideo}
               disabled={loading || images.length === 0}
-              className={`flex items-center justify-center gap-3 w-full md:w-[220px] py-4 md:py-3 rounded-2xl md:rounded-full font-bold transition-all shadow-2xl md:shadow-xl active:scale-95 ${
+              className={`flex items-center justify-center gap-3 w-full md:w-[240px] py-4 md:py-3 rounded-2xl md:rounded-full font-bold transition-all shadow-2xl md:shadow-xl active:scale-95 ${
                 loading || images.length === 0 
                 ? 'bg-slate-400 cursor-not-allowed text-slate-200' 
                 : 'bg-slate-900 hover:bg-slate-800 text-white'
@@ -148,12 +147,12 @@ function App() {
               {loading ? (
                 <>
                   <Loader2 className="animate-spin" size={20} /> 
-                  <span>{status || 'Traitement...'}</span>
+                  <span>{status || 'Génération...'}</span>
                 </>
               ) : (
                 <>
                   <Send size={20} /> 
-                  <span>Générer le MP4</span>
+                  <span>Générer la vidéo MP4</span>
                 </>
               )}
             </button>
@@ -161,13 +160,15 @@ function App() {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+          {/* COLONNE GAUCHE : ÉDITION */}
           <div className="space-y-8">
             <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
               <h2 className="text-lg font-bold mb-5 text-slate-700 flex items-center gap-2">
-                <span className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full text-xs text-slate-500">1</span>
+                <span className="w-6 h-6 flex items-center justify-center bg-blue-100 rounded-full text-xs text-blue-600 font-bold">1</span>
                 Articles & Tarifs
               </h2>
               <ImageUploader onImagesChange={setImages} />
+              
               <div className="mt-8 space-y-3">
                 {images.map((img, index) => (
                   <div key={index} className="flex items-center gap-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
@@ -175,14 +176,14 @@ function App() {
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2">
                       <input 
                         type="text" 
-                        placeholder="Nom de l'article" 
+                        placeholder="Ex: Sneakers Nike" 
                         className="p-2 text-sm border-none rounded-lg bg-white shadow-inner focus:ring-1 focus:ring-blue-500"
                         value={img.text}
                         onChange={(e) => updateImageDetail(index, 'text', e.target.value)}
                       />
                       <input 
                         type="text" 
-                        placeholder="Prix" 
+                        placeholder="Ex: 25.000 FCFA" 
                         className="p-2 text-sm border-none rounded-lg bg-white shadow-inner font-bold text-blue-600 focus:ring-1 focus:ring-blue-500"
                         value={img.price}
                         onChange={(e) => updateImageDetail(index, 'price', e.target.value)}
@@ -195,52 +196,36 @@ function App() {
 
             <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
               <h2 className="text-lg font-bold mb-5 text-slate-700 flex items-center gap-2">
-                <span className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full text-xs text-slate-500">2</span>
-                Effet de transition
-              </h2>
-              <div className="grid grid-cols-2 gap-2">
-                {TRANSITIONS_LIST.map((tr) => (
-                  <button
-                    key={tr.id}
-                    onClick={() => setSelectedTransitionId(tr.id)}
-                    className={`p-3 rounded-xl text-xs font-bold transition-all border-2 ${
-                      selectedTransitionId === tr.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-50 bg-slate-50 text-slate-500'
-                    }`}
-                  >
-                    {tr.name}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-              <h2 className="text-lg font-bold mb-5 text-slate-700 flex items-center gap-2">
-                <span className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full text-xs text-slate-500">3</span>
+                <span className="w-6 h-6 flex items-center justify-center bg-blue-100 rounded-full text-xs text-blue-600 font-bold">2</span>
                 Ambiance sonore
               </h2>
-              <div className="relative mb-6">
+              <div className="relative mb-4">
                 <select
                   value={presetAudios.find(a => a.url === audioUrl)?.url || ""}
                   onChange={(e) => setAudioUrl(e.target.value)}
-                  className="w-full p-3 pl-10 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm"
+                  className="w-full p-3 pl-10 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm appearance-none focus:outline-none focus:border-blue-500"
                 >
-                  <option value="">-- Choisir une musique --</option>
+                  <option value="">Choisir une musique...</option>
                   {presetAudios.map((audio) => (
                     <option key={audio.id} value={audio.url}>{audio.name.toUpperCase()}</option>
                   ))}
                 </select>
                 <Music className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               </div>
-              <label className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-xl text-sm font-bold cursor-pointer">
-                <Upload size={18} /> Importer MP3
+              <label className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold cursor-pointer hover:bg-slate-200 transition-colors">
+                <Upload size={18} /> Ou importer un MP3 perso
                 <input type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
               </label>
             </section>
           </div>
 
-          <div className="lg:sticky lg:top-10 h-fit bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-            <h2 className="text-sm font-black mb-6 text-center text-slate-400 uppercase tracking-widest">Aperçu en direct</h2>
-            <Previewer images={images} audioUrl={audioUrl} transitionType={selectedTransitionId} />
+          {/* COLONNE DROITE : APERÇU */}
+          <div className="lg:sticky lg:top-10 h-fit bg-white p-8 rounded-3xl border border-slate-200 shadow-sm text-center">
+            <h2 className="text-xs font-black mb-6 text-slate-400 uppercase tracking-widest">Aperçu en direct</h2>
+            <div className="max-w-[320px] mx-auto">
+                <Previewer images={images} audioUrl={audioUrl} transitionType={selectedTransitionId} />
+            </div>
+            <p className="mt-6 text-xs text-slate-400 italic">L'aperçu est une simulation. La vidéo finale sera générée en haute qualité.</p>
           </div>
         </div>
       </div>
