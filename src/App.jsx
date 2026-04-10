@@ -24,15 +24,12 @@ function App() {
     const fetchAudios = async () => {
       try {
         const { data, error } = await supabase.storage.from('audios').list();
-        
         if (error) throw error;
-
         if (data) {
           const audiosWithUrls = data.map(file => {
             const { data: { publicUrl } } = supabase.storage
               .from('audios')
               .getPublicUrl(file.name);
-            
             return {
               id: file.id,
               name: file.name.replace(/\.[^/.]+$/, "").replace(/-/g, " "),
@@ -45,7 +42,6 @@ function App() {
         console.error("Erreur de récupération des audios:", err.message);
       }
     };
-
     fetchAudios();
   }, []);
 
@@ -58,21 +54,16 @@ function App() {
   const handleAudioUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     setStatus('Chargement de l\'audio...');
     const fileName = `${Date.now()}-${file.name}`;
-    
     try {
       const { data, error } = await supabase.storage
         .from('assets')
         .upload(`audio/${fileName}`, file);
-
       if (error) throw error;
-
       const { data: { publicUrl } } = supabase.storage
         .from('assets')
         .getPublicUrl(`audio/${fileName}`);
-      
       setAudioUrl(publicUrl);
       setStatus('Musique prête !');
       setTimeout(() => setStatus(''), 2000);
@@ -92,19 +83,22 @@ function App() {
       setLoading(true);
       
       if (!ffmpeg.loaded) {
-        setStatus('Initialisation...');
+        setStatus('Moteur...');
         const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
         await ffmpeg.load({
           coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
           wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+          // INDISPENSABLE POUR ANDROID / PWA :
+          workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
         });
       }
 
-      setStatus('Préparation...');
+      setStatus('Fichiers...');
       try { await ffmpeg.deleteFile('output.mp4'); } catch (e) {}
 
+      // Chargement des images avec mode cors
       for (let i = 0; i < images.length; i++) {
-        await ffmpeg.writeFile(`img${i}.jpg`, await fetchFile(images[i].url));
+        await ffmpeg.writeFile(`img${i}.jpg`, await fetchFile(images[i].url, { mode: 'cors' }));
       }
 
       if (audioUrl) {
@@ -112,7 +106,7 @@ function App() {
         await ffmpeg.writeFile('audio.mp3', await fetchFile(audioUrl, { mode: 'cors' }));
       }
 
-      setStatus('Assemblage...');
+      setStatus('Montage...');
       let filterComplex = "";
       const inputArgs = [];
       
@@ -124,7 +118,7 @@ function App() {
       const concatPart = images.map((_, i) => `[v${i}]`).join('');
       filterComplex += `${concatPart}concat=n=${images.length}:v=1:a=0[outv]`;
 
-      setStatus('Encodage...');
+      setStatus('Rendu...');
       const ffmpegCommand = [
         ...inputArgs,
         ...(audioUrl ? ['-i', 'audio.mp3'] : []),
@@ -139,7 +133,7 @@ function App() {
 
       await ffmpeg.exec(ffmpegCommand);
 
-      setStatus('Finalisation...');
+      setStatus('Export...');
       const data = await ffmpeg.readFile('output.mp4');
       const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
       
@@ -148,10 +142,10 @@ function App() {
       a.download = `adflow-${Date.now()}.mp4`;
       a.click();
 
-      setStatus('Succès !');
+      setStatus('Terminé !');
     } catch (error) {
       console.error(error);
-      alert("Erreur technique FFmpeg.");
+      alert("Erreur FFmpeg : Vérifiez votre connexion ou la RAM de votre téléphone.");
     } finally {
       setLoading(false);
       setStatus('');
@@ -248,7 +242,7 @@ function App() {
               </div>
             </section>
 
-            {/* ETAPE 3: AUDIO (Liste déroulante) */}
+            {/* ETAPE 3: AUDIO */}
             <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
@@ -268,7 +262,7 @@ function App() {
                   onChange={(e) => setAudioUrl(e.target.value)}
                   className="w-full p-3 pl-10 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-medium text-slate-600 appearance-none focus:border-blue-500 focus:ring-0 transition-all cursor-pointer"
                 >
-                  <option value="">-- Choisir une musique du catalogue --</option>
+                  <option value="">-- Choisir une musique --</option>
                   {presetAudios.map((audio) => (
                     <option key={audio.id} value={audio.url}>
                       {audio.name.toUpperCase()}
@@ -276,11 +270,6 @@ function App() {
                   ))}
                 </select>
                 <Music className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
               </div>
 
               <div className="relative flex items-center gap-4 mb-6">
@@ -292,19 +281,11 @@ function App() {
               <div className="flex items-center gap-3">
                 <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-xl text-sm font-bold cursor-pointer hover:bg-slate-800 transition-colors">
                   <Upload size={18} />
-                  Fichier MP3 perso
-                  <input 
-                    type="file" 
-                    accept="audio/*" 
-                    onChange={handleAudioUpload} 
-                    className="hidden" 
-                  />
+                  Fichier MP3
+                  <input type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
                 </label>
                 {audioUrl && (
-                  <button 
-                    onClick={() => setAudioUrl(null)}
-                    className="p-3 text-xs font-bold text-red-400 hover:text-red-600 uppercase transition-colors"
-                  >
+                  <button onClick={() => setAudioUrl(null)} className="p-3 text-xs font-bold text-red-400 uppercase">
                     Désactiver
                   </button>
                 )}
@@ -315,11 +296,7 @@ function App() {
           {/* APERÇU VIDÉO */}
           <div className="lg:sticky lg:top-10 h-fit bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
             <h2 className="text-sm font-black mb-6 text-center text-slate-400 uppercase tracking-widest">Aperçu en direct</h2>
-            <Previewer 
-              images={images} 
-              audioUrl={audioUrl} 
-              transitionType={selectedTransitionId} 
-            />
+            <Previewer images={images} audioUrl={audioUrl} transitionType={selectedTransitionId} />
           </div>
         </div>
       </div>
