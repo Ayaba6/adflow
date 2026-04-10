@@ -12,28 +12,27 @@ serve(async (req) => {
     const { images, audioUrl } = await req.json()
     const CLOUD_NAME = "dah4t6swx";
 
-    if (!images || images.length === 0) {
-      throw new Error("Aucune image reçue");
-    }
+    if (!images || images.length === 0) throw new Error("Aucune image reçue");
 
-    // 1. On encode proprement l'image de base
-    const firstImageUrl = images[0].url;
+    // 1. Image de base (la première)
+    const firstImage = images[0].url;
     
-    // 2. Préparation des transformations
-    // On force le format MP4 et on définit la taille
+    // 2. Préparation des transformations (Taille 720x720, format MP4)
+    // On commence par la base de la vidéo
     let transformations = `w_720,h_720,c_fill,f_mp4`; 
     
     images.forEach((img, index) => {
-      // Nettoyage des textes pour éviter les erreurs d'URL
+      // On nettoie les textes pour l'URL
       const cleanText = encodeURIComponent(img.text || " ");
       const cleanPrice = encodeURIComponent(img.price || " ");
 
       if (index === 0) {
-        // Incrustation texte sur la première image
+        // Texte sur la 1ère image
         transformations += `/l_text:Arial_40_bold:${cleanText},g_south_west,x_50,y_100,co_white`;
         transformations += `/l_text:Arial_50_bold:${cleanPrice},g_south_west,x_50,y_40,co_yellow`;
       } else {
-        // Pour les images suivantes, on utilise le format Base64 pour l'URL (plus robuste)
+        // Pour les images suivantes, on les ajoute en "splice" (durée 3s)
+        // On encode l'URL en Base64 pour que Cloudinary ne s'y perde pas
         const b64Url = btoa(img.url).replace(/\//g, '_').replace(/\+/g, '-').replace(/=+$/, '');
         transformations += `/fl_splice,l_fetch:${b64Url}/du_3`;
         transformations += `/l_text:Arial_40_bold:${cleanText},g_south_west,x_50,y_100,co_white`;
@@ -47,13 +46,14 @@ serve(async (req) => {
       transformations += `/l_fetch:${b64Audio}/fl_layer_apply,so_0`;
     }
 
-    // URL FINALE : Note l'ajout de encodeURIComponent sur l'URL de l'image de base à la fin
-    const finalVideoUrl = `https://res.cloudinary.com/${CLOUD_NAME}/video/fetch/${transformations}/${encodeURIComponent(firstImageUrl)}`;
+    // CONSTRUCTION DE L'URL FINALE
+    // Note l'utilisation de /video/fetch/ car le résultat est un MP4
+    const finalVideoUrl = `https://res.cloudinary.com/${CLOUD_NAME}/video/fetch/${transformations}/${encodeURIComponent(firstImage)}`;
 
     return new Response(
       JSON.stringify({ 
         videoUrl: finalVideoUrl,
-        message: "URL générée" 
+        message: "Vidéo prête !" 
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     )
