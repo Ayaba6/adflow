@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import ImageUploader from './components/ImageUploader';
 import Previewer from './components/Previewer';
-import { LayoutDashboard, Send, Loader2, Sparkles, Music, Upload, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Send, Loader2, Sparkles, Music, Upload, CheckCircle2 } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { TRANSITIONS_LIST } from './constants/transitions';
 
@@ -74,9 +74,9 @@ function App() {
   };
 
   const generateVideo = async () => {
-    // 1. Diagnostic de sécurité pour Android
+    // Diagnostic sécurité
     if (!window.crossOriginIsolated) {
-      alert("ERREUR DE SÉCURITÉ : Le navigateur bloque l'accès à la RAM. Vérifie que tu es en HTTPS et que le fichier vercel.json est bien déployé.");
+      alert("ERREUR SÉCURITÉ : Vérifie HTTPS et vercel.json");
       return;
     }
 
@@ -89,7 +89,7 @@ function App() {
       setLoading(true);
       
       if (!ffmpeg.loaded) {
-        setStatus('Initialisation...');
+        setStatus('Moteur...');
         const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
         await ffmpeg.load({
           coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
@@ -98,13 +98,11 @@ function App() {
         });
       }
 
-      setStatus('Nettoyage...');
-      // On tente de libérer la mémoire des anciens fichiers
-      try { 
+      // NETTOYAGE MÉMOIRE AVANT TRAITEMENT
+      setStatus('Vidage RAM...');
+      try {
         const files = await ffmpeg.listDir('.');
-        for (const f of files) {
-          if (!f.isDir) await ffmpeg.deleteFile(f.name);
-        }
+        for (const f of files) { if (!f.isDir) await ffmpeg.deleteFile(f.name); }
       } catch (e) {}
 
       setStatus('Fichiers...');
@@ -123,7 +121,8 @@ function App() {
       
       for (let i = 0; i < images.length; i++) {
         inputArgs.push('-loop', '1', '-t', '3', '-i', `img${i}.jpg`);
-        filterComplex += `[${i}:v]scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}];`;
+        // RÉSOLUTION RÉDUITE À 720 POUR MOBILE
+        filterComplex += `[${i}:v]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}];`;
       }
 
       const concatPart = images.map((_, i) => `[v${i}]`).join('');
@@ -138,7 +137,8 @@ function App() {
         ...(audioUrl ? ['-map', `${images.length}:a`, '-shortest'] : []),
         '-c:v', 'libx264',
         '-pix_fmt', 'yuv420p',
-        '-preset', 'ultrafast', // Crucial pour éviter de saturer la RAM sur mobile
+        '-preset', 'ultrafast', // Mode le plus léger
+        '-crf', '28',           // Compression plus forte pour économiser la RAM
         '-r', '25',
         'output.mp4'
       ];
@@ -157,7 +157,7 @@ function App() {
       setStatus('Terminé !');
     } catch (error) {
       console.error(error);
-      alert("Erreur FFmpeg : Ton téléphone manque de RAM. Ferme les autres onglets et essaie avec moins d'images.");
+      alert("RAM saturée. Essaie avec seulement 2 images pour tester.");
     } finally {
       setLoading(false);
       setStatus('');
@@ -180,7 +180,6 @@ function App() {
             </div>
           </div>
           
-          {/* Bouton de génération - Fixe sur mobile, normal sur PC */}
           <div className="fixed bottom-6 left-0 right-0 px-4 z-50 md:static md:px-0 md:z-auto">
             <button 
               onClick={generateVideo}
@@ -194,7 +193,7 @@ function App() {
               {loading ? (
                 <>
                   <Loader2 className="animate-spin" size={20} /> 
-                  <span className="animate-pulse">{status || 'Traitement...'}</span>
+                  <span>{status || 'Traitement...'}</span>
                 </>
               ) : (
                 <>
@@ -208,8 +207,6 @@ function App() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           <div className="space-y-8">
-            
-            {/* ETAPE 1: ARTICLES */}
             <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
               <h2 className="text-lg font-bold mb-5 text-slate-700 flex items-center gap-2">
                 <span className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full text-xs text-slate-500">1</span>
@@ -241,7 +238,6 @@ function App() {
               </div>
             </section>
 
-            {/* ETAPE 2: TRANSITION */}
             <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
               <h2 className="text-lg font-bold mb-5 text-slate-700 flex items-center gap-2">
                 <span className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full text-xs text-slate-500">2</span>
@@ -253,79 +249,45 @@ function App() {
                     key={tr.id}
                     onClick={() => setSelectedTransitionId(tr.id)}
                     className={`p-3 rounded-xl text-xs font-bold transition-all border-2 ${
-                      selectedTransitionId === tr.id 
-                      ? 'border-blue-600 bg-blue-50 text-blue-700' 
-                      : 'border-slate-50 bg-slate-50 text-slate-500 hover:border-slate-200'
+                      selectedTransitionId === tr.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-50 bg-slate-50 text-slate-500'
                     }`}
                   >
-                    <div className="flex items-center justify-center gap-2">
-                      {selectedTransitionId === tr.id && <Sparkles size={12} />}
-                      {tr.name}
-                    </div>
+                    {tr.name}
                   </button>
                 ))}
               </div>
             </section>
 
-            {/* ETAPE 3: AUDIO */}
             <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-                  <span className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full text-xs text-slate-500">3</span>
-                  Ambiance sonore
-                </h2>
-                {audioUrl && (
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full uppercase">
-                    <CheckCircle2 size={10} /> Musique active
-                  </span>
-                )}
-              </div>
-              
+              <h2 className="text-lg font-bold mb-5 text-slate-700 flex items-center gap-2">
+                <span className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full text-xs text-slate-500">3</span>
+                Ambiance sonore
+              </h2>
               <div className="relative mb-6">
                 <select
                   value={presetAudios.find(a => a.url === audioUrl)?.url || ""}
                   onChange={(e) => setAudioUrl(e.target.value)}
-                  className="w-full p-3 pl-10 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-medium text-slate-600 appearance-none focus:border-blue-500 focus:ring-0 transition-all cursor-pointer"
+                  className="w-full p-3 pl-10 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm"
                 >
                   <option value="">-- Choisir une musique --</option>
                   {presetAudios.map((audio) => (
-                    <option key={audio.id} value={audio.url}>
-                      {audio.name.toUpperCase()}
-                    </option>
+                    <option key={audio.id} value={audio.url}>{audio.name.toUpperCase()}</option>
                   ))}
                 </select>
                 <Music className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               </div>
-
-              <div className="relative flex items-center gap-4 mb-6">
-                <div className="flex-1 h-px bg-slate-100"></div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ou importer</span>
-                <div className="flex-1 h-px bg-slate-100"></div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-xl text-sm font-bold cursor-pointer hover:bg-slate-800 transition-colors">
-                  <Upload size={18} />
-                  Fichier MP3
-                  <input type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
-                </label>
-                {audioUrl && (
-                  <button onClick={() => setAudioUrl(null)} className="p-3 text-xs font-bold text-red-400 uppercase">
-                    Désactiver
-                  </button>
-                )}
-              </div>
+              <label className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-xl text-sm font-bold cursor-pointer">
+                <Upload size={18} /> Importer MP3
+                <input type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
+              </label>
             </section>
           </div>
 
-          {/* APERÇU VIDÉO */}
           <div className="lg:sticky lg:top-10 h-fit bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
             <h2 className="text-sm font-black mb-6 text-center text-slate-400 uppercase tracking-widest">Aperçu en direct</h2>
             <Previewer images={images} audioUrl={audioUrl} transitionType={selectedTransitionId} />
           </div>
         </div>
-        
-        <div className="h-24 md:hidden"></div>
       </div>
     </div>
   );
