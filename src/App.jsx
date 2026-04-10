@@ -88,7 +88,7 @@ function App() {
         await ffmpeg.load({
           coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
           wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-          // INDISPENSABLE POUR ANDROID / PWA :
+          // INDISPENSABLE POUR ANDROID / PWA
           workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
         });
       }
@@ -168,17 +168,30 @@ function App() {
             </div>
           </div>
           
-          <button 
-            onClick={generateVideo}
-            disabled={loading || images.length === 0}
-            className="flex items-center justify-center gap-2 bg-slate-900 text-white px-8 py-3 rounded-full font-bold hover:bg-slate-800 transition-all shadow-xl disabled:opacity-50 min-w-[220px]"
-          >
-            {loading ? (
-              <><Loader2 className="animate-spin" size={20} /> {status || 'Traitement...'}</>
-            ) : (
-              <><Send size={20} /> Générer le MP4</>
-            )}
-          </button>
+          {/* Bouton de génération - Fixe sur mobile, normal sur PC */}
+          <div className="fixed bottom-6 left-0 right-0 px-4 z-50 md:static md:px-0 md:z-auto">
+            <button 
+              onClick={generateVideo}
+              disabled={loading || images.length === 0}
+              className={`flex items-center justify-center gap-3 w-full md:w-[220px] py-4 md:py-3 rounded-2xl md:rounded-full font-bold transition-all shadow-2xl md:shadow-xl active:scale-95 ${
+                loading || images.length === 0 
+                ? 'bg-slate-400 cursor-not-allowed text-slate-200' 
+                : 'bg-slate-900 hover:bg-slate-800 text-white'
+              }`}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" size={20} /> 
+                  <span className="animate-pulse">{status || 'Traitement...'}</span>
+                </>
+              ) : (
+                <>
+                  <Send size={20} /> 
+                  <span>Générer le MP4</span>
+                </>
+              )}
+            </button>
+          </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
@@ -299,6 +312,9 @@ function App() {
             <Previewer images={images} audioUrl={audioUrl} transitionType={selectedTransitionId} />
           </div>
         </div>
+        
+        {/* Espace pour éviter que le bouton flottant ne cache le contenu final sur mobile */}
+        <div className="h-24 md:hidden"></div>
       </div>
     </div>
   );
