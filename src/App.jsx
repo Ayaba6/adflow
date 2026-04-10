@@ -78,13 +78,13 @@ function App() {
 
     try {
       setLoading(true);
-      setStatus('Envoi au serveur ADFLOW...');
+      setStatus('Montage vidéo Kodalink...');
 
-      // Appel de ta fonction déployée
+      // Appel de ta fonction Edge 'create-video'
       const { data, error } = await supabase.functions.invoke('create-video', {
         body: { 
           images: images, 
-          audioUrl: audioUrl,
+          audioUrl: audioUrl || null,
           transition: selectedTransitionId
         }
       });
@@ -94,24 +94,29 @@ function App() {
       if (data && data.videoUrl) {
         setStatus('Téléchargement...');
         
-        // Création d'un lien pour forcer le téléchargement du MP4
+        // MÉTHODE ROBUSTE POUR SMARTPHONE (Force l'enregistrement du MP4)
+        const response = await fetch(data.videoUrl);
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        
         const link = document.createElement('a');
-        link.href = data.videoUrl;
-        link.setAttribute('download', `adflow-crea-${Date.now()}.mp4`);
-        link.setAttribute('target', '_blank');
+        link.href = blobUrl;
+        link.setAttribute('download', `adflow-video-${Date.now()}.mp4`);
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
         
-        setStatus('Terminé !');
+        // Nettoyage de la mémoire
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl);
+        
+        setStatus('Publicité prête !');
       } else {
-        // Sécurité si le serveur n'a pas encore le nouveau code
-        alert("Réponse du serveur : " + (data.message || "Erreur de génération"));
+        alert("Le serveur n'a pas renvoyé d'URL de vidéo.");
       }
 
     } catch (error) {
       console.error("Erreur Serveur:", error);
-      alert("Le serveur n'a pas pu traiter la demande. Vérifie ta connexion.");
+      alert("Erreur lors de la génération. Vérifie ta connexion.");
     } finally {
       setLoading(false);
       setTimeout(() => setStatus(''), 3000);
@@ -130,10 +135,11 @@ function App() {
               <h1 className="text-2xl font-black tracking-tight uppercase">
                 ADFLOW <span className="text-blue-600 text-sm px-2 py-0.5 bg-blue-50 rounded ml-1">Studio</span>
               </h1>
-              <p className="text-xs text-slate-500 font-medium italic italic">Propulsé par Kodalink Cloud</p>
+              <p className="text-xs text-slate-500 font-medium italic">Propulsé par Kodalink Cloud</p>
             </div>
           </div>
           
+          {/* BOUTON GÉNÉRER (Fixé en bas sur mobile, normal sur PC) */}
           <div className="fixed bottom-6 left-0 right-0 px-4 z-40 md:static md:px-0 md:z-auto">
             <button 
               onClick={generateVideo}
@@ -160,8 +166,8 @@ function App() {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-          {/* COLONNE GAUCHE : ÉDITION */}
-          <div className="space-y-8">
+          {/* COLONNE GAUCHE : ÉDITION DES ARTICLES */}
+          <div className="space-y-8 pb-24 md:pb-0">
             <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
               <h2 className="text-lg font-bold mb-5 text-slate-700 flex items-center gap-2">
                 <span className="w-6 h-6 flex items-center justify-center bg-blue-100 rounded-full text-xs text-blue-600 font-bold">1</span>
@@ -172,20 +178,20 @@ function App() {
               <div className="mt-8 space-y-3">
                 {images.map((img, index) => (
                   <div key={index} className="flex items-center gap-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                    <img src={img.url} crossOrigin="anonymous" className="w-14 h-14 object-cover rounded-xl shadow-sm bg-slate-200" alt="Mini" />
+                    <img src={img.url} crossOrigin="anonymous" className="w-14 h-14 object-cover rounded-xl shadow-sm bg-slate-200" alt="Produit" />
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2">
                       <input 
                         type="text" 
-                        placeholder="Ex: Sneakers Nike" 
+                        placeholder="Nom du produit" 
                         className="p-2 text-sm border-none rounded-lg bg-white shadow-inner focus:ring-1 focus:ring-blue-500"
-                        value={img.text}
+                        value={img.text || ''}
                         onChange={(e) => updateImageDetail(index, 'text', e.target.value)}
                       />
                       <input 
                         type="text" 
-                        placeholder="Ex: 25.000 FCFA" 
+                        placeholder="Prix (ex: 5000 FCFA)" 
                         className="p-2 text-sm border-none rounded-lg bg-white shadow-inner font-bold text-blue-600 focus:ring-1 focus:ring-blue-500"
-                        value={img.price}
+                        value={img.price || ''}
                         onChange={(e) => updateImageDetail(index, 'price', e.target.value)}
                       />
                     </div>
@@ -194,6 +200,7 @@ function App() {
               </div>
             </section>
 
+            {/* SECTION AUDIO */}
             <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
               <h2 className="text-lg font-bold mb-5 text-slate-700 flex items-center gap-2">
                 <span className="w-6 h-6 flex items-center justify-center bg-blue-100 rounded-full text-xs text-blue-600 font-bold">2</span>
@@ -205,7 +212,7 @@ function App() {
                   onChange={(e) => setAudioUrl(e.target.value)}
                   className="w-full p-3 pl-10 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm appearance-none focus:outline-none focus:border-blue-500"
                 >
-                  <option value="">Choisir une musique...</option>
+                  <option value="">Aucune musique</option>
                   {presetAudios.map((audio) => (
                     <option key={audio.id} value={audio.url}>{audio.name.toUpperCase()}</option>
                   ))}
@@ -213,19 +220,21 @@ function App() {
                 <Music className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               </div>
               <label className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold cursor-pointer hover:bg-slate-200 transition-colors">
-                <Upload size={18} /> Ou importer un MP3 perso
+                <Upload size={18} /> Ou importer un MP3
                 <input type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
               </label>
             </section>
           </div>
 
-          {/* COLONNE DROITE : APERÇU */}
+          {/* COLONNE DROITE : APERÇU (Sticky sur PC) */}
           <div className="lg:sticky lg:top-10 h-fit bg-white p-8 rounded-3xl border border-slate-200 shadow-sm text-center">
             <h2 className="text-xs font-black mb-6 text-slate-400 uppercase tracking-widest">Aperçu en direct</h2>
             <div className="max-w-[320px] mx-auto">
                 <Previewer images={images} audioUrl={audioUrl} transitionType={selectedTransitionId} />
             </div>
-            <p className="mt-6 text-xs text-slate-400 italic">L'aperçu est une simulation. La vidéo finale sera générée en haute qualité.</p>
+            <p className="mt-6 text-xs text-slate-400 italic">
+              L'aperçu est une simulation. <br /> La vidéo finale sera générée en format MP4 HD.
+            </p>
           </div>
         </div>
       </div>

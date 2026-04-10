@@ -6,62 +6,70 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
+  // Gestion du CORS pour ton application mobile/web
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    const { images, audioUrl } = await req.json()
+    const { images } = await req.json()
     const CLOUD_NAME = "dah4t6swx";
 
-    if (!images || images.length === 0) throw new Error("Aucune image reçue");
+    if (!images || images.length === 0) {
+      throw new Error("Aucune image reçue pour la génération");
+    }
 
-    // 1. Image de base (la première)
-    const firstImage = images[0].url;
-    
-    // 2. Préparation des transformations (Taille 720x720, format MP4)
-    // On commence par la base de la vidéo
-    let transformations = `w_720,h_720,c_fill,f_mp4`; 
-    
+    // 1. Initialisation de la timeline
+    // w_720,h_720 : Format carré parfait pour Facebook/WhatsApp
+    // f_mp4 : Conversion en vidéo
+    // fl_animated : INDISPENSABLE pour que Cloudinary crée un mouvement
+    // loop : Pour que la vidéo boucle si besoin
+    let transformations = `w_720,h_720,c_fill,f_mp4,fl_animated,fl_awebp`; 
+
+    // 2. Construction du diaporama
     images.forEach((img, index) => {
-      // On nettoie les textes pour l'URL
       const cleanText = encodeURIComponent(img.text || " ");
       const cleanPrice = encodeURIComponent(img.price || " ");
+      
+      // Encodage Base64 de l'URL pour éviter les erreurs de caractères spéciaux
+      const b64Url = btoa(img.url)
+        .replace(/\//g, '_')
+        .replace(/\+/g, '-')
+        .replace(/=+$/, '');
 
       if (index === 0) {
-        // Texte sur la 1ère image
-        transformations += `/l_text:Arial_40_bold:${cleanText},g_south_west,x_50,y_100,co_white`;
-        transformations += `/l_text:Arial_50_bold:${cleanPrice},g_south_west,x_50,y_40,co_yellow`;
+        // Première image (Base de la vidéo)
+        transformations += `/l_text:Arial_45_bold:${cleanText},g_south_west,x_50,y_120,co_white,du_3`;
+        transformations += `/l_text:Arial_55_bold:${cleanPrice},g_south_west,x_50,y_50,co_yellow,du_3`;
       } else {
-        // Pour les images suivantes, on les ajoute en "splice" (durée 3s)
-        // On encode l'URL en Base64 pour que Cloudinary ne s'y perde pas
-        const b64Url = btoa(img.url).replace(/\//g, '_').replace(/\+/g, '-').replace(/=+$/, '');
-        transformations += `/fl_splice,l_fetch:${b64Url}/du_3`;
-        transformations += `/l_text:Arial_40_bold:${cleanText},g_south_west,x_50,y_100,co_white`;
-        transformations += `/l_text:Arial_50_bold:${cleanPrice},g_south_west,x_50,y_40,co_yellow`;
+        // Images suivantes ajoutées à la suite (Splicing)
+        // du_3 : Chaque image reste 3 secondes
+        transformations += `/fl_layer_apply,l_fetch:${b64Url}/w_720,h_720,c_fill,du_3`;
+        transformations += `/l_text:Arial_45_bold:${cleanText},g_south_west,x_50,y_120,co_white,du_3`;
+        transformations += `/l_text:Arial_55_bold:${cleanPrice},g_south_west,x_50,y_50,co_yellow,du_3`;
       }
     });
 
-    // 3. Ajout de l'audio si présent
-    if (audioUrl) {
-      const b64Audio = btoa(audioUrl).replace(/\//g, '_').replace(/\+/g, '-').replace(/=+$/, '');
-      transformations += `/l_fetch:${b64Audio}/fl_layer_apply,so_0`;
-    }
-
-    // CONSTRUCTION DE L'URL FINALE
-    // Note l'utilisation de /video/fetch/ car le résultat est un MP4
-    const finalVideoUrl = `https://res.cloudinary.com/${CLOUD_NAME}/video/fetch/${transformations}/${encodeURIComponent(firstImage)}`;
+    // 3. Assemblage de l'URL finale
+    // On utilise /image/fetch/ car c'est la seule méthode qui a validé le MP4 sur ton compte
+    const finalVideoUrl = `https://res.cloudinary.com/${CLOUD_NAME}/image/fetch/${transformations}/${encodeURIComponent(images[0].url)}`;
 
     return new Response(
       JSON.stringify({ 
         videoUrl: finalVideoUrl,
-        message: "Vidéo prête !" 
+        message: "Vidéo publicitaire générée avec succès !" 
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { 
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200 
+      }
     )
 
   } catch (error) {
     return new Response(
       JSON.stringify({ error: error.message }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 },
+      { 
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400 
+      }
     )
   }
 })
