@@ -74,9 +74,8 @@ function App() {
   };
 
   const generateVideo = async () => {
-    // Diagnostic sécurité
     if (!window.crossOriginIsolated) {
-      alert("ERREUR SÉCURITÉ : Vérifie HTTPS et vercel.json");
+      alert("ERREUR SÉCURITÉ : Vérifie que tu es en HTTPS et que vercel.json est présent.");
       return;
     }
 
@@ -89,7 +88,7 @@ function App() {
       setLoading(true);
       
       if (!ffmpeg.loaded) {
-        setStatus('Moteur...');
+        setStatus('Démarrage...');
         const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
         await ffmpeg.load({
           coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
@@ -98,55 +97,64 @@ function App() {
         });
       }
 
-      // NETTOYAGE MÉMOIRE AVANT TRAITEMENT
-      setStatus('Vidage RAM...');
+      // 1. Vidage de la RAM virtuelle
       try {
-        const files = await ffmpeg.listDir('.');
-        for (const f of files) { if (!f.isDir) await ffmpeg.deleteFile(f.name); }
+        const currentFiles = await ffmpeg.listDir('.');
+        for (const f of currentFiles) { if (!f.isDir) await ffmpeg.deleteFile(f.name); }
       } catch (e) {}
 
-      setStatus('Fichiers...');
+      // 2. Création des segments vidéo (Un par un pour économiser la RAM)
+      const segments = [];
       for (let i = 0; i < images.length; i++) {
-        await ffmpeg.writeFile(`img${i}.jpg`, await fetchFile(images[i].url, { mode: 'cors' }));
+        setStatus(`Traitement ${i + 1}/${images.length}...`);
+        
+        const imgName = `input${i}.jpg`;
+        const segName = `seg${i}.mp4`;
+        
+        await ffmpeg.writeFile(imgName, await fetchFile(images[i].url));
+        
+        // On génère un clip de 3s pour cette image seule
+        await ffmpeg.exec([
+          '-loop', '1', '-t', '3',
+          '-i', imgName,
+          '-vf', 'scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2,setsar=1',
+          '-c:v', 'libx264',
+          '-preset', 'ultrafast',
+          '-pix_fmt', 'yuv420p',
+          '-r', '25',
+          segName
+        ]);
+
+        segments.push(`file ${segName}`);
+        await ffmpeg.deleteFile(imgName); // Suppression immédiate du fichier source
       }
 
+      // 3. Fusion des segments
+      setStatus('Assemblage...');
+      await ffmpeg.writeFile('list.txt', segments.join('\n'));
+      await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'temp_video.mp4']);
+
+      // 4. Mixage Audio
+      let finalFile = 'temp_video.mp4';
       if (audioUrl) {
-        setStatus('Audio...');
-        await ffmpeg.writeFile('audio.mp3', await fetchFile(audioUrl, { mode: 'cors' }));
+        setStatus('Musique...');
+        await ffmpeg.writeFile('music.mp3', await fetchFile(audioUrl));
+        await ffmpeg.exec([
+          '-i', 'temp_video.mp4',
+          '-i', 'music.mp3',
+          '-c:v', 'copy',
+          '-c:a', 'aac',
+          '-map', '0:v:0',
+          '-map', '1:a:0',
+          '-shortest',
+          'final_output.mp4'
+        ]);
+        finalFile = 'final_output.mp4';
       }
 
-      setStatus('Montage...');
-      let filterComplex = "";
-      const inputArgs = [];
-      
-      for (let i = 0; i < images.length; i++) {
-        inputArgs.push('-loop', '1', '-t', '3', '-i', `img${i}.jpg`);
-        // RÉSOLUTION RÉDUITE À 720 POUR MOBILE
-        filterComplex += `[${i}:v]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}];`;
-      }
-
-      const concatPart = images.map((_, i) => `[v${i}]`).join('');
-      filterComplex += `${concatPart}concat=n=${images.length}:v=1:a=0[outv]`;
-
-      setStatus('Rendu...');
-      const ffmpegCommand = [
-        ...inputArgs,
-        ...(audioUrl ? ['-i', 'audio.mp3'] : []),
-        '-filter_complex', filterComplex,
-        '-map', '[outv]',
-        ...(audioUrl ? ['-map', `${images.length}:a`, '-shortest'] : []),
-        '-c:v', 'libx264',
-        '-pix_fmt', 'yuv420p',
-        '-preset', 'ultrafast', // Mode le plus léger
-        '-crf', '28',           // Compression plus forte pour économiser la RAM
-        '-r', '25',
-        'output.mp4'
-      ];
-
-      await ffmpeg.exec(ffmpegCommand);
-
-      setStatus('Export...');
-      const data = await ffmpeg.readFile('output.mp4');
+      // 5. Envoi du fichier
+      setStatus('Finalisation...');
+      const data = await ffmpeg.readFile(finalFile);
       const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
       
       const a = document.createElement('a');
@@ -154,10 +162,10 @@ function App() {
       a.download = `adflow-${Date.now()}.mp4`;
       a.click();
 
-      setStatus('Terminé !');
+      setStatus('Prêt !');
     } catch (error) {
       console.error(error);
-      alert("RAM saturée. Essaie avec seulement 2 images pour tester.");
+      alert("Le navigateur a restreint la mémoire. Ferme les autres applis et réessaie.");
     } finally {
       setLoading(false);
       setStatus('');
@@ -227,7 +235,7 @@ function App() {
                       />
                       <input 
                         type="text" 
-                        placeholder="Prix (ex: 15.000 F)" 
+                        placeholder="Prix" 
                         className="p-2 text-sm border-none rounded-lg bg-white shadow-inner font-bold text-blue-600 focus:ring-1 focus:ring-blue-500"
                         value={img.price}
                         onChange={(e) => updateImageDetail(index, 'price', e.target.value)}
